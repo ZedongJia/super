@@ -2,7 +2,7 @@ import os
 
 from bin.complier import Complier
 from bin.urls import Url
-from bin.utls import o_tag, c_tag
+from bin.utls import replaceSlot, o_tag, c_tag
 from bin.vdom import Node
 import settings
 
@@ -71,7 +71,7 @@ class File:
     def getComponentName(self) -> str:
         return self._register['name']
     
-    def toHTML(self, slots: dict = None, isPage: bool = False) -> str:
+    def toHTML(self, slots: dict = None, isPage: bool = False, paramsSlots: dict[str, str] = {}) -> str:
 
         html = ''
 
@@ -80,7 +80,7 @@ class File:
         
         # replace slots
         if slots != None:
-            html = self._replaceSlot(slots, html)
+            html = replaceSlot(slots,'{{', '}}', html)
         
         # add script
         if isPage:
@@ -89,51 +89,59 @@ class File:
             if index != -1:
                 html.removesuffix('</html>')
                 ending = '</html>'
-            html += self._toScript() + e_tag
+            html += self._toScript(paramsSlots) + e_tag
         return html
     
-    def _replaceSlot(self, slots: dict[str, Node], html: str) -> str:
-        offset = 2
-        start = html.find('{{')
-        while start < len(html) and start != -1:
-            end = html.find('}}', start + offset)
-            name = html[start + offset:end].replace(' ', '')
-            slot = slots.get(name, None)
-            if slot != None:
-                html = html.replace(html[start:end + 2], slot._toHTML(self))
-            start = html.find('{{', start + offset)
-        
-        return html
 
-    def _toScript(self) -> str:
-        onload, default = self._reconstructScript()
-        script = 'window.onload = () => {\n' + onload + '}\n' + default
-        return o_tag('script') + '\n' + script + c_tag('script') + '\n'
+
+    def _toScript(self, paramsSlots: dict[str, str] = {}) -> str:
+        script = self._reconstructScript()
+        # check onload
+        if script['onload'] != '':
+            script['onload'] = 'window.onload = () => {\n' + script['onload'] + '}\n'
+        
+        # replace slots condition
+        for _k, _v in paramsSlots.items():
+            script['import'] = script['import'].replace(_k, _k + '=' + _v)
+        
+        # concat
+        temp = ''
+        for _v in script.values():
+            temp += _v
+        
+        script = temp
+        
+        if script != '':
+            # transform to script
+            script = o_tag('script') + '\n' + script + c_tag('script') + '\n'
+        
+        return script
     
-    def _reconstructScript(self) -> dict:
+    def _reconstructScript(self) -> dict[str, str]:
         # preparing
-        onload = ''
-        default = ''
-        onload_list = self._script['onload']
-        default_list = self._script['default']
-        for _s in onload_list:
-            if _s != '':
-                onload += _s
-        for _s in default_list:
-            if _s != '':
-                default += _s
+        script = {
+            'onload': '',
+            'import': '',
+            'default': ''
+        }
+        # badly O(n^2)
+        for _k in script.keys():
+            _l = self._script[_k]
+            for _s in _l:
+                if _s != '':
+                    script[_k] += _s
         
         for name in self.subFiles:
-            sub_onload, sub_default = self.FILES[name]._reconstructScript()
-            onload += sub_onload
-            default += sub_default
+            sub_script = self.FILES[name]._reconstructScript()
+            for _k in script.keys():
+                script[_k] += sub_script[_k]
 
-        return onload, default
+        return script
         
     def _belongTo(self, file):
         file.subFiles.append(self.getComponentName())
     
-class FileTree:
+class FileHash:
     r'''
     use HashMap to store files
     
@@ -142,50 +150,78 @@ class FileTree:
     def __init__(self, pathList: list[Path]):
         self.FILES: dict[str, File] = {}
         self.pathList = pathList
-        self._buildTree()
+        self._buildHash()
     
-    def _buildTree(self):
+    def _buildHash(self):
         for path in self.pathList:
             file = File(path, self.FILES)
             self.FILES[file.getComponentName()] = file
 
-
 class Stream:
-    
-    FILE_TYPES = ['.html']
     
     # scan group
     @staticmethod
-    def scanFiles() -> list[Path]:
-        pathList = []
+    def scanFiles() -> dict[str,list[Path]]:
+        r'''
+        @return a dict about {
+            '.html': [],
+            '.png': [],
+            '.jpg': [],
+            '.webp': [],
+            ...
+        }
+        '''
+        pathList = {k:[] for k in settings.FILE_TYPES}
         for base in settings.SCAN_DIRS:
             Stream._scan(base, pathList)
 
         return pathList
     
     @staticmethod
-    def _scan(root: str, pathList: list):
+    def _scan(root: str, pathList: dict):
         for (dirpath, dirnames, filenames) in os.walk(root):
             for name in filenames:
-                if name[name.find('.'):len(name)] not in Stream.FILE_TYPES:
+                suffix = name[name.find('.'):len(name)]
+                if suffix not in settings.FILE_TYPES:
                     continue
                 path = dirpath.replace('\\', '/') + '/' + name
-                pathList.append(Path(path))
+                pathList[suffix].append(Path(path))
+    
+    @staticmethod
+    def loadFiles(FILES: dict, randomSlots: dict[str, str] = {}, paramsSlots: dict[str, str] = {}):
+        r'''
+        load files to urls
+        '''
+        for url in settings.ROUTER:
+            Stream._loadHTML(FILES, url, randomSlots, paramsSlots)
     
     # write group
     @staticmethod
-    def writeFiles(FILES: dict):
+    def writeFiles():
         for url in settings.ROUTER:
-            Stream._writeHTML(FILES, url)
+            Stream._writeHTML(url)
     
     @staticmethod
-    def _writeHTML(FILES: dict[str,File], url: Url):
+    def _loadHTML(FILES: dict[str,File], url: Url, randomSlots: dict[str, str] = {}, paramsSlots: dict[str, str] = {}):
+        html = FILES[url.name].toHTML(isPage=True, paramsSlots=paramsSlots)
+        # static slots
+        html = replaceSlot(settings.STATIC_REGISTER, '{{', '}}', html, url.getPathPrefix() + settings.STATIC_RESOURCE_DIR)
+        # random slots
+        html = replaceSlot(randomSlots, '{{', '}}', html)
+        
+        url.setHTML(html)
+        
+        for _u in url.include:
+            Stream._loadHTML(FILES, _u)   
+    
+    @staticmethod
+    def _writeHTML(url: Url):
         dir_path = settings.BASE_DIR + url.dir_path
         path = settings.BASE_DIR + url.getPath()
         if not os.path.exists(dir_path):
             os.mkdir(dir_path)
         with open(path, 'w', encoding=settings.ENCODING) as writer:
-            writer.write(FILES[url.name].toHTML(isPage=True))
+            writer.write(url.html)
         
         for _u in url.include:
-            Stream._writeHTML(FILES, _u)
+            Stream._writeHTML(_u)

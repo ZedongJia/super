@@ -1,11 +1,9 @@
 
-from bin.utls import o_tag, c_tag
+from bin.utls import c_tag
 from bin.vdom import Node
-
+from bin import config
 
 class Complier:
-    
-    SELF_CLOSE_TAG = ['input', 'link', 'source', 'meta', '!DOCTYPE']
     
     IGNORE_SINGLE_CONTENT = ['\n', '\t', ' ', '']
     
@@ -42,9 +40,9 @@ class Complier:
     @staticmethod
     def _extractScript(file: str) -> dict[str,list]:
         r'''
-        @type 'onload', 'default'
+        @type 'onload', 'import', 'default'
         '''
-        script = {'onload': [], 'default': []}
+        script = {'onload': [], 'import': [], 'default': []}
         # check script
         tag_len = 9
         s_tag = file.find('<script', 0)
@@ -59,6 +57,8 @@ class Complier:
             
             if attr.get('onload', None) != None:
                 script['onload'].append(content)
+            elif attr.get('import', None) != None:
+                script['import'].append(content)
             else:
                 script['default'].append(content)
             
@@ -109,7 +109,7 @@ class Complier:
         '''
         if in self-close-tag, return
         '''
-        if _tag in Complier.SELF_CLOSE_TAG:
+        if _tag in config.SELF_CLOSE_TAG:
             node = Node(_tag, _attr, _content)
             return (end, node)
         
@@ -119,7 +119,7 @@ class Complier:
         start = end
         
         while start < len(file):
-            while file[start] != '<':
+            while start < len(file) and file[start] != '<':
                 start += 1
             # append content
             if end != start:

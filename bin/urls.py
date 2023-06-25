@@ -4,6 +4,9 @@ class Url:
         self.name = name
         self.include = include
         self.dir_path = ''
+        self.depth = 1
+        
+        self.html = ''
         
         for url in include:
             url._setDirPath(self.dir_path + self.name + '/')
@@ -15,5 +18,14 @@ class Url:
         return self.dir_path + self.name + '.html'
     
     def _setDirPath(self, path):
+        self.depth += 1
         self.dir_path = path
     
+    def setHTML(self, html: str):
+        r'''
+        load html and replace static resource
+        '''
+        self.html = html
+
+    def getPathPrefix(self):
+        return '../'*self.depth

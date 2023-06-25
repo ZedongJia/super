@@ -1,12 +1,10 @@
-import argparse
+from bin.super import Super
 
-from bin.runner import Builder
 
-parser = argparse.ArgumentParser()
+super = Super()
 
-parser.add_argument('choice')
+super.registParamsSlots({
+    'myParam': '{test: "dd", ee: "ww"}'
+})
 
-args = parser.parse_args()
-
-if args.choice == 'build':
-    Builder.build()
+super.super()

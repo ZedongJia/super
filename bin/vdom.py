@@ -1,6 +1,6 @@
 
 from bin.utls import o_tag, c_tag
-
+from bin import config
 
 class Node:
     r'''
@@ -11,8 +11,6 @@ class Node:
     static props
     '''
     COUNT = 0
-    
-    SELF_CLOSE_TAG = ['input', 'link', 'source', 'meta', '!DOCTYPE']
     
     def __init__(self, tag: str = 'enpty', attr: dict[str, str] = {}, children: list = []) -> None:
         # dom props
@@ -59,14 +57,15 @@ class Node:
         FILES = file.FILES
         # import, need replace and report slots
         if self._tag in FILES.keys():
-            slots = self._checkSlots()
+            slots = self._checkSlots(file)
             subFile = FILES[self._tag]
+            # in order to cascade find scripts
             subFile._belongTo(file)
             return subFile.toHTML(slots)
         
         open_tag = o_tag(self._tag, self._attr)
         
-        if self._tag in Node.SELF_CLOSE_TAG:
+        if self._tag in config.SELF_CLOSE_TAG:
             return open_tag + '\n'
         
         content = ''
@@ -78,13 +77,16 @@ class Node:
         
         return open_tag + '\n' + content + c_tag(self._tag) + '\n'
     
-    def _checkSlots(self) -> dict:
+    def _checkSlots(self, file) -> dict[str, str]:
+        r'''
+        @param file --root file of this dom
+        '''
         slots = {}
         for _c in self._children:
             if type(_c) == str:
                 continue
             slot = _c._attr.get('slot', None)
             if slot != None:
-                slots[slot] = _c
+                slots[slot] = _c._toHTML(file)
         
         return slots
